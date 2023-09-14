@@ -26,7 +26,7 @@ import com.google.android.gms.cast.framework.media.CastMediaOptions
 
 class UampCastOptionsProvider : OptionsProvider {
 
-    override fun getCastOptions(context: Context?): CastOptions? {
+    override fun getCastOptions(context: Context): CastOptions {
         return CastOptions.Builder()
             // Use the Default Media Receiver with DRM support.
             .setReceiverApplicationId(APP_ID_DEFAULT_RECEIVER_WITH_DRM)
@@ -40,7 +40,7 @@ class UampCastOptionsProvider : OptionsProvider {
             .setStopReceiverApplicationWhenEndingSession(true).build()
     }
 
-    override fun getAdditionalSessionProviders(context: Context?): List<SessionProvider?>? {
+    override fun getAdditionalSessionProviders(context: Context): List<SessionProvider>? {
         return null
     }
 }

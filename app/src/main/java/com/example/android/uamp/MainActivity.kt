@@ -95,7 +95,9 @@ class MainActivity : AppCompatActivity() {
         /**
          * Set up a MediaRouteButton to allow the user to control the current media playback route
          */
-        CastButtonFactory.setUpMediaRouteButton(this, menu, R.id.media_route_menu_item)
+        if (menu != null) {
+            CastButtonFactory.setUpMediaRouteButton(this, menu, R.id.media_route_menu_item)
+        }
         return true
     }
 

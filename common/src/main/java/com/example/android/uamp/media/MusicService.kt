@@ -18,9 +18,7 @@ package com.example.android.uamp.media
 
 import android.app.Notification
 import android.app.PendingIntent
-import android.content.ComponentName
 import android.content.Intent
-import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Bundle
 import android.os.ResultReceiver
@@ -34,7 +32,7 @@ import android.util.Log
 import android.widget.Toast
 import androidx.core.content.ContextCompat
 import androidx.media.MediaBrowserServiceCompat
-import androidx.media.MediaBrowserServiceCompat.BrowserRoot.EXTRA_RECENT
+import androidx.media.utils.MediaConstants
 import com.example.android.uamp.media.extensions.album
 import com.example.android.uamp.media.extensions.flag
 import com.example.android.uamp.media.extensions.id
@@ -45,9 +43,6 @@ import com.example.android.uamp.media.library.BrowseTree
 import com.example.android.uamp.media.library.JsonSource
 import com.example.android.uamp.media.library.MEDIA_SEARCH_SUPPORTED
 import com.example.android.uamp.media.library.MusicSource
-import com.example.android.uamp.media.library.UAMP_BROWSABLE_ROOT
-import com.example.android.uamp.media.library.UAMP_EMPTY_ROOT
-import com.example.android.uamp.media.library.UAMP_RECENT_ROOT
 import com.google.android.exoplayer2.C
 import com.google.android.exoplayer2.ExoPlayer
 import com.google.android.exoplayer2.PlaybackException
@@ -55,7 +50,6 @@ import com.google.android.exoplayer2.Player
 import com.google.android.exoplayer2.Player.EVENT_MEDIA_ITEM_TRANSITION
 import com.google.android.exoplayer2.Player.EVENT_PLAY_WHEN_READY_CHANGED
 import com.google.android.exoplayer2.Player.EVENT_POSITION_DISCONTINUITY
-import com.google.android.exoplayer2.Player.EVENT_TIMELINE_CHANGED
 import com.google.android.exoplayer2.SimpleExoPlayer
 import com.google.android.exoplayer2.audio.AudioAttributes
 import com.google.android.exoplayer2.ext.cast.CastPlayer
@@ -63,7 +57,6 @@ import com.google.android.exoplayer2.ext.cast.SessionAvailabilityListener
 import com.google.android.exoplayer2.ext.mediasession.MediaSessionConnector
 import com.google.android.exoplayer2.ext.mediasession.TimelineQueueNavigator
 import com.google.android.exoplayer2.ui.PlayerNotificationManager
-import com.google.android.exoplayer2.util.Util
 import com.google.android.exoplayer2.util.Util.constrainValue
 import com.google.android.gms.cast.framework.CastContext
 import kotlinx.coroutines.CoroutineScope
@@ -71,8 +64,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
-import kotlin.math.max
-import kotlin.math.min
 
 /**
  * This class is the entry point for browsing and playback commands from the APP's UI
@@ -125,7 +116,7 @@ open class MusicService : MediaBrowserServiceCompat() {
         Uri.parse("https://storage.googleapis.com/uamp/catalog.json")
 
     private val uAmpAudioAttributes = AudioAttributes.Builder()
-        .setContentType(C.CONTENT_TYPE_MUSIC)
+        .setContentType(C.AUDIO_CONTENT_TYPE_MUSIC)
         .setUsage(C.USAGE_MEDIA)
         .build()
 
@@ -171,7 +162,7 @@ open class MusicService : MediaBrowserServiceCompat() {
         // Build a PendingIntent that can be used to launch the UI.
         val sessionActivityPendingIntent =
             packageManager?.getLaunchIntentForPackage(packageName)?.let { sessionIntent ->
-                PendingIntent.getActivity(this, 0, sessionIntent, 0)
+                PendingIntent.getActivity(this, 0, sessionIntent, PendingIntent.FLAG_IMMUTABLE)
             }
 
         // Create a new MediaSession.
@@ -270,40 +261,36 @@ open class MusicService : MediaBrowserServiceCompat() {
         rootHints: Bundle?
     ): BrowserRoot? {
 
-        /*
-         * By default, all known clients are permitted to search, but only tell unknown callers
-         * about search if permitted by the [BrowseTree].
-         */
+
+        val isAndroidAutoEnabled =
+            clientPackageName != SYSTEM_UI_PACKAGE && clientPackageName != packageName &&
+                    clientPackageName != SYSTEM_BLUETOOTH_PACKAGE && clientPackageName != SYSTEM_PACKAGE
+        loadDiscoveryDataFirstTime(isAndroidAutoEnabled)
         val isKnownCaller = packageValidator.isKnownCaller(clientPackageName, clientUid)
         val rootExtras = Bundle().apply {
             putBoolean(
                 MEDIA_SEARCH_SUPPORTED,
-                isKnownCaller || browseTree.searchableByUnknownCaller
+                isKnownCaller || BrowseTree.searchableByUnknownCaller
             )
+            putBoolean(MediaConstants.BROWSER_SERVICE_EXTRAS_KEY_SEARCH_SUPPORTED, true)
             putBoolean(CONTENT_STYLE_SUPPORTED, true)
             putInt(CONTENT_STYLE_BROWSABLE_HINT, CONTENT_STYLE_GRID)
             putInt(CONTENT_STYLE_PLAYABLE_HINT, CONTENT_STYLE_LIST)
         }
+        return when(isKnownCaller){
+            true -> when(isAndroidAutoEnabled){
+                true -> BrowserRoot(BROWSABLE_ROOT, rootExtras)
+                else -> BrowserRoot(MEDIA_ROOT_ID, null)
+            }
+            else -> BrowserRoot(EMPTY_ROOT, rootExtras)
+        }
+    }
 
-        return if (isKnownCaller) {
-            /**
-             * By default return the browsable root. Treat the EXTRA_RECENT flag as a special case
-             * and return the recent root instead.
-             */
-            val isRecentRequest = rootHints?.getBoolean(EXTRA_RECENT) ?: false
-            val browserRootPath = if (isRecentRequest) UAMP_RECENT_ROOT else UAMP_BROWSABLE_ROOT
-            BrowserRoot(browserRootPath, rootExtras)
-        } else {
-            /**
-             * Unknown caller. There are two main ways to handle this:
-             * 1) Return a root without any content, which still allows the connecting client
-             * to issue commands.
-             * 2) Return `null`, which will cause the system to disconnect the app.
-             *
-             * UAMP takes the first approach for a variety of reasons, but both are valid
-             * options.
-             */
-            BrowserRoot(UAMP_EMPTY_ROOT, rootExtras)
+    private fun loadDiscoveryDataFirstTime(isAndroidAutoEnabled: Boolean) {
+        if (isAndroidAutoEnabled) {
+            serviceScope.launch {
+                mediaSource.load()
+            }
         }
     }
 
@@ -320,30 +307,19 @@ open class MusicService : MediaBrowserServiceCompat() {
         /**
          * If the caller requests the recent root, return the most recently played song.
          */
-        if (parentMediaId == UAMP_RECENT_ROOT) {
-            result.sendResult(storage.loadRecentSong()?.let { song -> listOf(song) })
-        } else {
-            // If the media source is ready, the results will be set synchronously here.
-            val resultsSent = mediaSource.whenReady { successfullyInitialized ->
-                if (successfullyInitialized) {
-                    val children = browseTree[parentMediaId]?.map { item ->
-                        MediaItem(item.description, item.flag)
-                    }
-                    result.sendResult(children)
-                } else {
-                    mediaSession.sendSessionEvent(NETWORK_FAILURE, null)
-                    result.sendResult(null)
-                }
-            }
+        println("arifur -> onLoadChildren: parentMediaId: $parentMediaId")
+        when(parentMediaId){
+            MEDIA_ROOT_ID -> result.detach()
+            else -> mediaSource.whenReady {
+                isSuccessfullyInitialized ->
+                when(isSuccessfullyInitialized){
+                    true -> {
 
-            // If the results are not ready, the service must "detach" the results before
-            // the method returns. After the source is ready, the lambda above will run,
-            // and the caller will be notified that the results are ready.
-            //
-            // See [MediaItemFragmentViewModel.subscriptionCallback] for how this is passed to the
-            // UI/displayed in the [RecyclerView].
-            if (!resultsSent) {
-                result.detach()
+                    }
+                    else -> {
+
+                    }
+                }
             }
         }
     }
@@ -667,5 +643,13 @@ private const val CONTENT_STYLE_GRID = 2
 private const val UAMP_USER_AGENT = "uamp.next"
 
 val MEDIA_DESCRIPTION_EXTRAS_START_PLAYBACK_POSITION_MS = "playback_start_position_ms"
+private const val SYSTEM_UI_PACKAGE = "com.android.systemui"
+private const val SYSTEM_BLUETOOTH_PACKAGE = "com.android.bluetooth"
+private const val SYSTEM_PACKAGE = "com.google.android.wearable.app"
+private const val MEDIA_ROOT_ID = "root_id"
+const val BROWSABLE_ROOT = "/"
+const val EMPTY_ROOT = "@empty@"
+const val RECOMMENDED_ROOT = "__All__"
+const val ALBUMS_ROOT = "__Podcasts__"
 
 private const val TAG = "MusicService"

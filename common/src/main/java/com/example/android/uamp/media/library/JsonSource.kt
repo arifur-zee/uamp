@@ -38,7 +38,13 @@ import com.example.android.uamp.media.extensions.trackCount
 import com.example.android.uamp.media.extensions.trackNumber
 import com.google.android.exoplayer2.C
 import com.google.gson.Gson
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.BufferedReader
 import java.io.IOException
@@ -57,22 +63,78 @@ internal class JsonSource(private val source: Uri) : AbstractMusicSource() {
     companion object {
         const val ORIGINAL_ARTWORK_URI_KEY = "com.example.android.uamp.JSON_ARTWORK_URI"
     }
+    private val scope = CoroutineScope(Dispatchers.Main + Job())
 
     private var catalog: List<MediaMetadataCompat> = emptyList()
 
+    private val _albums = MutableStateFlow<List<Album>>(listOf())
+
+
+    private data class Album(
+        val album: String,
+        val icon: String,
+        val genre: String,
+        val totalTrack: Long
+    )
+
     init {
         state = STATE_INITIALIZING
+        loadAlbums()
+        scope.launch {
+            _albums.collect{
+                if(it.isNotEmpty()){
+                    state = STATE_INITIALIZED
+                }
+            }
+        }
+        /*musicServiceOperations.musicDiscoveryData.onEach { viewState ->
+            when (viewState) {
+                is StateValue.Success -> {
+                    val rails = viewState.value.railModels
+                    if (rails.isNotEmpty()) {
+                        updateCatalog(getJsonCatalog(rails)).let { updatedCatalog ->
+                            catalog = updatedCatalog
+                            state = STATE_INITIALIZED
+                        }
+                    }
+                }
+                else -> Unit
+            }
+        }.launchIn(serviceScope)*/
+    }
+
+    private fun loadAlbums() {
+        scope.launch {
+            val catalog = getJsonCatalog(source)
+            val albums = catalog?.let {
+                catalog ->
+                catalog.music.groupBy {
+                   Album(
+                       album = it.album,
+                       icon = it.image,
+                       genre = it.genre,
+                       totalTrack = it.totalTrackCount
+                   )
+                }.keys
+            }
+            _albums.update {
+                albums.orEmpty().toList()
+            }
+        }
     }
 
     override fun iterator(): Iterator<MediaMetadataCompat> = catalog.iterator()
 
     override suspend fun load() {
-        updateCatalog(source)?.let { updatedCatalog ->
-            catalog = updatedCatalog
-            state = STATE_INITIALIZED
-        } ?: run {
-            catalog = emptyList()
-            state = STATE_ERROR
+       loadAlbums()
+    }
+
+
+    private suspend fun getJsonCatalog(catalogUri: Uri): JsonCatalog? = withContext(Dispatchers.IO){
+        return@withContext try {
+            downloadJson(catalogUri)
+        } catch (ioException: IOException) {
+            return@withContext null
         }
     }
 

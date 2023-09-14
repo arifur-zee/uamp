@@ -61,11 +61,14 @@ class BrowseTree(
 ) {
     private val mediaIdToChildren = mutableMapOf<String, MutableList<MediaMetadataCompat>>()
 
-    /**
-     * Whether to allow clients which are unknown (not on the allowed list) to use search on this
-     * [BrowseTree].
-     */
-    val searchableByUnknownCaller = true
+    companion object{
+        /**
+         * Whether to allow clients which are unknown (not on the allowed list) to use search on this
+         * [BrowseTree].
+         */
+        val searchableByUnknownCaller = true
+    }
+
 
     /**
      * In this example, there's a single root node (identified by the constant
