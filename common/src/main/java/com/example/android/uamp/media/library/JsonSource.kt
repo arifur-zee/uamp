@@ -20,6 +20,7 @@ import android.net.Uri
 import android.support.v4.media.MediaBrowserCompat.MediaItem
 import android.support.v4.media.MediaDescriptionCompat.STATUS_NOT_DOWNLOADED
 import android.support.v4.media.MediaMetadataCompat
+import android.util.Log
 import com.example.android.uamp.media.extensions.album
 import com.example.android.uamp.media.extensions.albumArtUri
 import com.example.android.uamp.media.extensions.artist
@@ -78,6 +79,7 @@ internal class JsonSource(private val source: Uri) : AbstractMusicSource() {
         state = STATE_INITIALIZING
         scope.launch {
             _albums.collect{
+                Log.d(TAG, "Albums: $it")
                 val recommended = it.take(it.size/2)
                 val albums = it.drop(it.size/2)
                 val recommendedMediaItems = recommended.toMediaMetadataCompats(UAMP_ALBUMS_ROOT, source)
@@ -86,6 +88,8 @@ internal class JsonSource(private val source: Uri) : AbstractMusicSource() {
                     addAll(recommendedMediaItems)
                     addAll(albumMediaItems)
                 }
+                Log.d(TAG, "recommendedMediaItems: $recommendedMediaItems")
+                Log.d(TAG, "albumMediaItems: $albumMediaItems")
                 catalog = updatedList
                 state = when(it.isEmpty()){
                     true -> STATE_ERROR
@@ -93,20 +97,6 @@ internal class JsonSource(private val source: Uri) : AbstractMusicSource() {
                 }
             }
         }
-        /*musicServiceOperations.musicDiscoveryData.onEach { viewState ->
-            when (viewState) {
-                is StateValue.Success -> {
-                    val rails = viewState.value.railModels
-                    if (rails.isNotEmpty()) {
-                        updateCatalog(getJsonCatalog(rails)).let { updatedCatalog ->
-                            catalog = updatedCatalog
-                            state = STATE_INITIALIZED
-                        }
-                    }
-                }
-                else -> Unit
-            }
-        }.launchIn(serviceScope)*/
     }
 
     private fun loadAlbums() {
@@ -134,10 +124,12 @@ internal class JsonSource(private val source: Uri) : AbstractMusicSource() {
     override fun iterator(): Iterator<MediaMetadataCompat> = catalog.iterator()
 
     override suspend fun load() {
+        Log.d(TAG, "Load")
        loadAlbums()
     }
 
     override fun load(parentId: String, onSuccess: (List<MediaMetadataCompat>) -> Unit, onFailure: (Exception) -> Unit) {
+        Log.d(TAG, "load:: parentId: $parentId")
         scope.launch {
             when(val catalog = getJsonCatalog(source)){
                 null -> onFailure(IOException("Items not available"))
@@ -179,9 +171,13 @@ internal class JsonSource(private val source: Uri) : AbstractMusicSource() {
         }
     }
 
-    override fun findMedia(id: String): MediaMetadataCompat?  = songMap[id]
+    override fun findMedia(id: String): MediaMetadataCompat? {
+        Log.d(TAG, "findMedia:: id: $id")
+        return songMap[id]
+    }
 
     override fun findAlbums(item: MediaMetadataCompat): List<MediaMetadataCompat> {
+        Log.d(TAG, "findAlbums:: id: ${item.id}")
         val song = findMedia(item.id.orEmpty())
         val list = song?.let {
             song ->
@@ -199,52 +195,6 @@ internal class JsonSource(private val source: Uri) : AbstractMusicSource() {
             downloadJson(catalogUri)
         } catch (ioException: IOException) {
             return@withContext null
-        }
-    }
-
-    /**
-     * Function to connect to a remote URI and download/process the JSON file that corresponds to
-     * [MediaMetadataCompat] objects.
-     */
-    private suspend fun updateCatalog(catalogUri: Uri): List<MediaMetadataCompat>? {
-        return withContext(Dispatchers.IO) {
-            val musicCat = try {
-                downloadJson(catalogUri)
-            } catch (ioException: IOException) {
-                return@withContext null
-            }
-
-            // Get the base URI to fix up relative references later.
-            val baseUri = catalogUri.toString().removeSuffix(catalogUri.lastPathSegment ?: "")
-
-            val mediaMetadataCompats = musicCat.music.map { song ->
-                // The JSON may have paths that are relative to the source of the JSON
-                // itself. We need to fix them up here to turn them into absolute paths.
-                catalogUri.scheme?.let { scheme ->
-                    if (!song.source.startsWith(scheme)) {
-                        song.source = baseUri + song.source
-                    }
-                    if (!song.image.startsWith(scheme)) {
-                        song.image = baseUri + song.image
-                    }
-                }
-                val jsonImageUri = Uri.parse(song.image)
-                val imageUri = AlbumArtContentProvider.mapUri(jsonImageUri)
-
-                MediaMetadataCompat.Builder()
-                    .from(song)
-                    .apply {
-                        displayIconUri = imageUri.toString() // Used by ExoPlayer and Notification
-                        albumArtUri = imageUri.toString()
-                        // Keep the original artwork URI for being included in Cast metadata object.
-                        putString(ORIGINAL_ARTWORK_URI_KEY, jsonImageUri.toString())
-                    }
-                    .build()
-            }.toList()
-            // Add description keys to be used by the ExoPlayer MediaSession extension when
-            // announcing metadata changes.
-            mediaMetadataCompats.forEach { it.description.extras?.putAll(it.bundle) }
-            mediaMetadataCompats
         }
     }
 
@@ -394,3 +344,5 @@ data class Album(
     val genre: String,
     val totalTrack: Long,
 )
+
+private val TAG: String = JsonSource::class.java.simpleName

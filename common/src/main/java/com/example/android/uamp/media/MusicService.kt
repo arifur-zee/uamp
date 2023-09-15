@@ -37,6 +37,7 @@ import com.example.android.uamp.media.extensions.album
 import com.example.android.uamp.media.extensions.flag
 import com.example.android.uamp.media.extensions.id
 import com.example.android.uamp.media.extensions.mediaUri
+import com.example.android.uamp.media.extensions.runAndLogFailure
 import com.example.android.uamp.media.extensions.title
 import com.example.android.uamp.media.extensions.toMediaItem
 import com.example.android.uamp.media.extensions.trackNumber
@@ -264,10 +265,6 @@ open class MusicService : MediaBrowserServiceCompat() {
         rootHints: Bundle?
     ): BrowserRoot? {
 
-
-        val isAndroidAutoEnabled =
-            clientPackageName != SYSTEM_UI_PACKAGE && clientPackageName != packageName &&
-                    clientPackageName != SYSTEM_BLUETOOTH_PACKAGE && clientPackageName != SYSTEM_PACKAGE
         val isKnownCaller = packageValidator.isKnownCaller(clientPackageName, clientUid)
         val rootExtras = Bundle().apply {
             putBoolean(
@@ -279,11 +276,9 @@ open class MusicService : MediaBrowserServiceCompat() {
             putInt(CONTENT_STYLE_BROWSABLE_HINT, CONTENT_STYLE_GRID)
             putInt(CONTENT_STYLE_PLAYABLE_HINT, CONTENT_STYLE_LIST)
         }
+        Log.d(TAG, "clientPackageName: $clientPackageName, isKnownCaller: $isKnownCaller")
         return when(isKnownCaller){
-            true -> when(isAndroidAutoEnabled){
-                true -> BrowserRoot(UAMP_BROWSABLE_ROOT, rootExtras)
-                else -> BrowserRoot(UAMP_BROWSABLE_ROOT, rootExtras)
-            }
+            true -> BrowserRoot(UAMP_BROWSABLE_ROOT, rootExtras)
             else -> BrowserRoot(UAMP_EMPTY_ROOT, rootExtras)
         }
     }
@@ -316,26 +311,29 @@ open class MusicService : MediaBrowserServiceCompat() {
                         true -> {
                             when(val cached = browseTree[parentMediaId]){
                                 null -> {
-                                    runCatching {
+                                    runAndLogFailure(TAG){
                                         result.detach()
                                         mediaSource.load(parentMediaId, {
-                                            runCatching {
+                                            runAndLogFailure(TAG){
                                                 result.sendResult(it.toMediaBrowserItems())
                                             }
                                         }, {
-                                            result.sendResult(emptyList())
+                                            runAndLogFailure(TAG){
+                                                result.sendResult(emptyList())
+                                            }
                                         })
                                     }
-
                                 }
-                                else -> result.sendResult(cached.toMediaBrowserItems())
+                                else -> runAndLogFailure(TAG) {
+                                    result.sendResult(cached.toMediaBrowserItems())
+                                }
                             }
                         }
                         else -> Unit
                     }
                 }
                 if(isReady.not()){
-                    result.detach()
+                    runAndLogFailure(TAG) {  result.detach() }
                 }
             }
         }
