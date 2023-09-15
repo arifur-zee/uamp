@@ -69,7 +69,6 @@ class MediaItemFragmentViewModel(
                     getResourceForMediaId(child.mediaId!!)
                 )
             }
-            println("arifur -> subscriptionCallback:: parentID: $parentId, itemsList: ${itemsList.size}")
             _mediaItems.postValue(itemsList)
         }
     }

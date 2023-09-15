@@ -279,7 +279,6 @@ open class MusicService : MediaBrowserServiceCompat() {
             putInt(CONTENT_STYLE_BROWSABLE_HINT, CONTENT_STYLE_GRID)
             putInt(CONTENT_STYLE_PLAYABLE_HINT, CONTENT_STYLE_LIST)
         }
-        println("arifur -> onGetRoot:: clientPackage: $clientPackageName, isKnownCaller: $isKnownCaller, isAndroidAutoEnabled: $isAndroidAutoEnabled")
         return when(isKnownCaller){
             true -> when(isAndroidAutoEnabled){
                 true -> BrowserRoot(UAMP_BROWSABLE_ROOT, rootExtras)
@@ -308,16 +307,13 @@ open class MusicService : MediaBrowserServiceCompat() {
         /**
          * If the caller requests the recent root, return the most recently played song.
          */
-        println("arifur -> onLoadChildren:: parentMediaId: $parentMediaId")
         when(parentMediaId){
             MEDIA_ROOT_ID -> result.detach()
             else -> {
                 val isReady = mediaSource.whenReady {
                         isSuccessfullyInitialized ->
-                    println("arifur -> onLoadChildren:: isSuccessfullyInitialized: $isSuccessfullyInitialized")
                     when(isSuccessfullyInitialized){
                         true -> {
-                            println("arifur -> cached: ${browseTree[parentMediaId]}")
                             when(val cached = browseTree[parentMediaId]){
                                 null -> {
                                     runCatching {
@@ -492,15 +488,12 @@ open class MusicService : MediaBrowserServiceCompat() {
             playWhenReady: Boolean,
             extras: Bundle?
         ) {
-            println("arifur -> onPrepareFromMediaId: $mediaId, playWhenReady: $playWhenReady")
             mediaSource.whenReady {
                 val itemToPlay: MediaMetadataCompat? = mediaSource.findMedia(mediaId)
                 if (itemToPlay == null) {
-                    println("arifur -> Item not found")
                     Log.w(TAG, "Content not found: MediaID=$mediaId")
                     // TODO: Notify caller of the error.
                 } else {
-                    println("arifur -> Item found: ${itemToPlay.id}, ${itemToPlay.mediaUri}, ${itemToPlay.title}, ${itemToPlay.album}")
                     val playbackStartPositionMs =
                         extras?.getLong(MEDIA_DESCRIPTION_EXTRAS_START_PLAYBACK_POSITION_MS, C.TIME_UNSET)
                             ?: C.TIME_UNSET
