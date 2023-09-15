@@ -56,6 +56,7 @@ class MainActivity : AppCompatActivity() {
          * fragment swap.
          */
         viewModel.navigateToFragment.observe(this, Observer {
+            println("arifur -> viewModel.navigateToFragment: ${it.peekContent()}")
             it?.getContentIfNotHandled()?.let { fragmentRequest ->
                 val transaction = supportFragmentManager.beginTransaction()
                 transaction.replace(

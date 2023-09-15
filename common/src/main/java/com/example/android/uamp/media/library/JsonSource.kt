@@ -41,6 +41,7 @@ import com.google.gson.Gson
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.update
@@ -49,6 +50,7 @@ import kotlinx.coroutines.withContext
 import java.io.BufferedReader
 import java.io.IOException
 import java.io.InputStreamReader
+import java.net.IDN
 import java.net.URL
 import java.util.concurrent.TimeUnit
 
@@ -67,23 +69,28 @@ internal class JsonSource(private val source: Uri) : AbstractMusicSource() {
 
     private var catalog: List<MediaMetadataCompat> = emptyList()
 
-    private val _albums = MutableStateFlow<List<Album>>(listOf())
-
-
-    private data class Album(
-        val album: String,
-        val icon: String,
-        val genre: String,
-        val totalTrack: Long
-    )
+    private val _albums = MutableSharedFlow<List<Album>>()
 
     init {
         state = STATE_INITIALIZING
         loadAlbums()
         scope.launch {
             _albums.collect{
-                if(it.isNotEmpty()){
-                    state = STATE_INITIALIZED
+                println("arifur -> total albums -> $it")
+                val recommended = it.take(it.size/2)
+                val albums = it.drop(it.size/2)
+                val recommendedMediaItems = recommended.toMediaMetadataCompats(UAMP_ALBUMS_ROOT, source)
+                val albumMediaItems = albums.toMediaMetadataCompats(UAMP_RECOMMENDED_ROOT, source)
+                val updatedList = buildList {
+                    addAll(recommendedMediaItems)
+                    addAll(albumMediaItems)
+                }
+                println("arifur -> recommended: $recommended")
+                println("arifur -> albums: $albums")
+                catalog = updatedList
+                state = when(it.isEmpty()){
+                    true -> STATE_ERROR
+                    else -> STATE_INITIALIZED
                 }
             }
         }
@@ -109,17 +116,19 @@ internal class JsonSource(private val source: Uri) : AbstractMusicSource() {
             val albums = catalog?.let {
                 catalog ->
                 catalog.music.groupBy {
-                   Album(
-                       album = it.album,
-                       icon = it.image,
-                       genre = it.genre,
-                       totalTrack = it.totalTrackCount
-                   )
-                }.keys
+                   it.album
+                }
+            }?.map {
+                val firstItem = it.value.first()
+                Album(
+                    title = it.key,
+                    artist = firstItem.artist,
+                    icon = firstItem.image,
+                    genre = firstItem.genre,
+                    totalTrack = firstItem.totalTrackCount
+                )
             }
-            _albums.update {
-                albums.orEmpty().toList()
-            }
+            _albums.emit(albums.orEmpty().toList())
         }
     }
 
@@ -197,6 +206,41 @@ internal class JsonSource(private val source: Uri) : AbstractMusicSource() {
         val reader = BufferedReader(InputStreamReader(catalogConn.openStream()))
         return Gson().fromJson(reader, JsonCatalog::class.java)
     }
+}
+
+private fun List<Album>.toMediaMetadataCompats(root: String, catalogUri: Uri): List<MediaMetadataCompat>{
+    val baseUri = catalogUri.toString().removeSuffix(catalogUri.lastPathSegment ?: "")
+    val mediaMetadataCompats = map {
+        val jsonImageUri = Uri.parse(it.icon)
+        val imageUri = AlbumArtContentProvider.mapUri(jsonImageUri)
+        MediaMetadataCompat.Builder()
+            .from(root, it)
+            .apply {
+                displayIconUri = imageUri.toString() // Used by ExoPlayer and Notification
+                albumArtUri = imageUri.toString()
+                // Keep the original artwork URI for being included in Cast metadata object.
+                putString(JsonSource.ORIGINAL_ARTWORK_URI_KEY, jsonImageUri.toString())
+            }
+            .build()
+    }.toList()
+    mediaMetadataCompats.forEach { it.description.extras?.putAll(it.bundle) }
+    return mediaMetadataCompats
+}
+
+fun MediaMetadataCompat.Builder.from(root: String, album: Album): MediaMetadataCompat.Builder{
+    id = album.title
+    title = album.title
+    artist = album.artist
+    genre = album.genre
+    albumArtUri = album.icon
+    trackCount = album.totalTrack
+    flag = MediaItem.FLAG_BROWSABLE
+    displayTitle = album.title
+    displaySubtitle = album.artist
+    displayIconUri = album.icon
+    this.album = album.title
+    putString("root", root)
+    return this
 }
 
 /**
@@ -287,3 +331,11 @@ class JsonMusic {
     var duration: Long = C.TIME_UNSET
     var site: String = ""
 }
+
+data class Album(
+    val title: String,
+    var artist: String = "",
+    val icon: String = "",
+    val genre: String,
+    val totalTrack: Long,
+)

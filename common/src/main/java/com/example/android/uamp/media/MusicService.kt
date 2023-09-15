@@ -41,8 +41,11 @@ import com.example.android.uamp.media.extensions.trackNumber
 import com.example.android.uamp.media.library.AbstractMusicSource
 import com.example.android.uamp.media.library.BrowseTree
 import com.example.android.uamp.media.library.JsonSource
+import com.example.android.uamp.media.library.MEDIA_ROOT_ID
 import com.example.android.uamp.media.library.MEDIA_SEARCH_SUPPORTED
 import com.example.android.uamp.media.library.MusicSource
+import com.example.android.uamp.media.library.UAMP_BROWSABLE_ROOT
+import com.example.android.uamp.media.library.UAMP_EMPTY_ROOT
 import com.google.android.exoplayer2.C
 import com.google.android.exoplayer2.ExoPlayer
 import com.google.android.exoplayer2.PlaybackException
@@ -277,12 +280,13 @@ open class MusicService : MediaBrowserServiceCompat() {
             putInt(CONTENT_STYLE_BROWSABLE_HINT, CONTENT_STYLE_GRID)
             putInt(CONTENT_STYLE_PLAYABLE_HINT, CONTENT_STYLE_LIST)
         }
+        println("arifur -> onGetRoot:: clientPackage: $clientPackageName, isKnownCaller: $isKnownCaller, isAndroidAutoEnabled: $isAndroidAutoEnabled")
         return when(isKnownCaller){
             true -> when(isAndroidAutoEnabled){
-                true -> BrowserRoot(BROWSABLE_ROOT, rootExtras)
+                true -> BrowserRoot(UAMP_BROWSABLE_ROOT, rootExtras)
                 else -> BrowserRoot(MEDIA_ROOT_ID, null)
             }
-            else -> BrowserRoot(EMPTY_ROOT, rootExtras)
+            else -> BrowserRoot(UAMP_EMPTY_ROOT, rootExtras)
         }
     }
 
@@ -307,17 +311,24 @@ open class MusicService : MediaBrowserServiceCompat() {
         /**
          * If the caller requests the recent root, return the most recently played song.
          */
-        println("arifur -> onLoadChildren: parentMediaId: $parentMediaId")
+        println("arifur -> onLoadChildren:: parentMediaId: $parentMediaId")
         when(parentMediaId){
             MEDIA_ROOT_ID -> result.detach()
-            else -> mediaSource.whenReady {
-                isSuccessfullyInitialized ->
-                when(isSuccessfullyInitialized){
-                    true -> {
-
-                    }
-                    else -> {
-
+            else -> {
+                result.detach()
+                mediaSource.whenReady {
+                        isSuccessfullyInitialized ->
+                    println("arifur -> onLoadChildren:: isSuccessfullyInitialized: $isSuccessfullyInitialized")
+                    when(isSuccessfullyInitialized){
+                        true -> {
+                            when(val cached = browseTree[parentMediaId]){
+                                null -> result.sendResult(emptyList())
+                                else -> result.sendResult(cached.toMediaBrowserItems())
+                            }
+                        }
+                        else -> {
+                            result.sendResult(null)
+                        }
                     }
                 }
             }
@@ -626,7 +637,12 @@ open class MusicService : MediaBrowserServiceCompat() {
             ).show()
         }
     }
-}
+
+    private fun List<MediaMetadataCompat>?.toMediaBrowserItems() = this?.map {
+        it.toMediaBrowserItem()
+    }
+
+    private fun  MediaMetadataCompat.toMediaBrowserItem() = MediaItem(description, flag) }
 
 /*
  * (Media) Session events
@@ -646,10 +662,7 @@ val MEDIA_DESCRIPTION_EXTRAS_START_PLAYBACK_POSITION_MS = "playback_start_positi
 private const val SYSTEM_UI_PACKAGE = "com.android.systemui"
 private const val SYSTEM_BLUETOOTH_PACKAGE = "com.android.bluetooth"
 private const val SYSTEM_PACKAGE = "com.google.android.wearable.app"
-private const val MEDIA_ROOT_ID = "root_id"
-const val BROWSABLE_ROOT = "/"
-const val EMPTY_ROOT = "@empty@"
-const val RECOMMENDED_ROOT = "__All__"
-const val ALBUMS_ROOT = "__Podcasts__"
 
 private const val TAG = "MusicService"
+
+
