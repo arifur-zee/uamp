@@ -200,9 +200,7 @@ open class MusicService : MediaBrowserServiceCompat() {
         // The media library is built from a remote JSON file. We'll create the source here,
         // and then use a suspend function to perform the download off the main thread.
         mediaSource = JsonSource(source = remoteJsonSource)
-        serviceScope.launch {
-            mediaSource.load()
-        }
+        initialLoad()
 
         // ExoPlayer will manage the MediaSession for us.
         mediaSessionConnector = MediaSessionConnector(mediaSession)
@@ -268,7 +266,6 @@ open class MusicService : MediaBrowserServiceCompat() {
         val isAndroidAutoEnabled =
             clientPackageName != SYSTEM_UI_PACKAGE && clientPackageName != packageName &&
                     clientPackageName != SYSTEM_BLUETOOTH_PACKAGE && clientPackageName != SYSTEM_PACKAGE
-        loadDiscoveryDataFirstTime(isAndroidAutoEnabled)
         val isKnownCaller = packageValidator.isKnownCaller(clientPackageName, clientUid)
         val rootExtras = Bundle().apply {
             putBoolean(
@@ -284,17 +281,15 @@ open class MusicService : MediaBrowserServiceCompat() {
         return when(isKnownCaller){
             true -> when(isAndroidAutoEnabled){
                 true -> BrowserRoot(UAMP_BROWSABLE_ROOT, rootExtras)
-                else -> BrowserRoot(MEDIA_ROOT_ID, null)
+                else -> BrowserRoot(UAMP_BROWSABLE_ROOT, rootExtras)
             }
             else -> BrowserRoot(UAMP_EMPTY_ROOT, rootExtras)
         }
     }
 
-    private fun loadDiscoveryDataFirstTime(isAndroidAutoEnabled: Boolean) {
-        if (isAndroidAutoEnabled) {
-            serviceScope.launch {
-                mediaSource.load()
-            }
+    private fun initialLoad() {
+        serviceScope.launch {
+            mediaSource.load()
         }
     }
 
@@ -315,21 +310,29 @@ open class MusicService : MediaBrowserServiceCompat() {
         when(parentMediaId){
             MEDIA_ROOT_ID -> result.detach()
             else -> {
-                result.detach()
-                mediaSource.whenReady {
+                val isReady = mediaSource.whenReady {
                         isSuccessfullyInitialized ->
                     println("arifur -> onLoadChildren:: isSuccessfullyInitialized: $isSuccessfullyInitialized")
                     when(isSuccessfullyInitialized){
                         true -> {
+                            println("arifur -> cached: ${browseTree[parentMediaId]}")
                             when(val cached = browseTree[parentMediaId]){
-                                null -> result.sendResult(emptyList())
+                                null -> {
+                                    result.detach()
+                                    mediaSource.load(parentMediaId, {
+                                        result.sendResult(it.toMediaBrowserItems())
+                                    }, {
+                                        result.sendResult(emptyList())
+                                    })
+                                }
                                 else -> result.sendResult(cached.toMediaBrowserItems())
                             }
                         }
-                        else -> {
-                            result.sendResult(null)
-                        }
+                        else -> Unit
                     }
+                }
+                if(isReady.not()){
+                    result.detach()
                 }
             }
         }

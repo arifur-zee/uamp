@@ -62,6 +62,7 @@ import java.util.concurrent.TimeUnit
  */
 internal class JsonSource(private val source: Uri) : AbstractMusicSource() {
 
+
     companion object {
         const val ORIGINAL_ARTWORK_URI_KEY = "com.example.android.uamp.JSON_ARTWORK_URI"
     }
@@ -73,10 +74,8 @@ internal class JsonSource(private val source: Uri) : AbstractMusicSource() {
 
     init {
         state = STATE_INITIALIZING
-        loadAlbums()
         scope.launch {
             _albums.collect{
-                println("arifur -> total albums -> $it")
                 val recommended = it.take(it.size/2)
                 val albums = it.drop(it.size/2)
                 val recommendedMediaItems = recommended.toMediaMetadataCompats(UAMP_ALBUMS_ROOT, source)
@@ -85,8 +84,6 @@ internal class JsonSource(private val source: Uri) : AbstractMusicSource() {
                     addAll(recommendedMediaItems)
                     addAll(albumMediaItems)
                 }
-                println("arifur -> recommended: $recommended")
-                println("arifur -> albums: $albums")
                 catalog = updatedList
                 state = when(it.isEmpty()){
                     true -> STATE_ERROR
@@ -136,6 +133,44 @@ internal class JsonSource(private val source: Uri) : AbstractMusicSource() {
 
     override suspend fun load() {
        loadAlbums()
+    }
+
+    override fun load(parentId: String, onSuccess: (List<MediaMetadataCompat>) -> Unit, onFailure: (Exception) -> Unit) {
+        scope.launch {
+            when(val catalog = getJsonCatalog(source)){
+                null -> onFailure(IOException("Items not available"))
+                else -> {
+                    val baseUri = source.toString().removeSuffix(source.lastPathSegment ?: "")
+
+                    val mediaMetadataCompats = catalog.music.filter { parentId == it.album }.map {
+                        song ->
+                        source.scheme?.let { scheme ->
+                            if (!song.source.startsWith(scheme)) {
+                                song.source = baseUri + song.source
+                            }
+                            if (!song.image.startsWith(scheme)) {
+                                song.image = baseUri + song.image
+                            }
+                        }
+                        val jsonImageUri = Uri.parse(song.image)
+                        val imageUri = AlbumArtContentProvider.mapUri(jsonImageUri)
+                        MediaMetadataCompat.Builder()
+                            .from(song)
+                            .apply {
+                                displayIconUri = imageUri.toString() // Used by ExoPlayer and Notification
+                                albumArtUri = imageUri.toString()
+                                // Keep the original artwork URI for being included in Cast metadata object.
+                                putString(ORIGINAL_ARTWORK_URI_KEY, jsonImageUri.toString())
+                            }
+                            .build()
+                    }
+                    // Add description keys to be used by the ExoPlayer MediaSession extension when
+                    // announcing metadata changes.
+                    mediaMetadataCompats.forEach { it.description.extras?.putAll(it.bundle) }
+                    onSuccess(mediaMetadataCompats)
+                }
+            }
+        }
     }
 
 

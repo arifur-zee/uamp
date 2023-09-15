@@ -53,6 +53,8 @@ interface MusicSource : Iterable<MediaMetadataCompat> {
     fun whenReady(performAction: (Boolean) -> Unit): Boolean
 
     fun search(query: String, extras: Bundle): List<MediaMetadataCompat>
+
+    fun load(parentID: String, onSuccess: (List<MediaMetadataCompat>) -> Unit, onFailure: (ex: Exception) -> Unit)
 }
 
 @IntDef(
