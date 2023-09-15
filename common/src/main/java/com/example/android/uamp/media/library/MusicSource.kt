@@ -55,6 +55,9 @@ interface MusicSource : Iterable<MediaMetadataCompat> {
     fun search(query: String, extras: Bundle): List<MediaMetadataCompat>
 
     fun load(parentID: String, onSuccess: (List<MediaMetadataCompat>) -> Unit, onFailure: (ex: Exception) -> Unit)
+
+    fun findMedia(id: String): MediaMetadataCompat?
+    fun findAlbums(item: MediaMetadataCompat): List<MediaMetadataCompat>
 }
 
 @IntDef(

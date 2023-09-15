@@ -36,6 +36,8 @@ import androidx.media.utils.MediaConstants
 import com.example.android.uamp.media.extensions.album
 import com.example.android.uamp.media.extensions.flag
 import com.example.android.uamp.media.extensions.id
+import com.example.android.uamp.media.extensions.mediaUri
+import com.example.android.uamp.media.extensions.title
 import com.example.android.uamp.media.extensions.toMediaItem
 import com.example.android.uamp.media.extensions.trackNumber
 import com.example.android.uamp.media.library.AbstractMusicSource
@@ -318,12 +320,17 @@ open class MusicService : MediaBrowserServiceCompat() {
                             println("arifur -> cached: ${browseTree[parentMediaId]}")
                             when(val cached = browseTree[parentMediaId]){
                                 null -> {
-                                    result.detach()
-                                    mediaSource.load(parentMediaId, {
-                                        result.sendResult(it.toMediaBrowserItems())
-                                    }, {
-                                        result.sendResult(emptyList())
-                                    })
+                                    runCatching {
+                                        result.detach()
+                                        mediaSource.load(parentMediaId, {
+                                            runCatching {
+                                                result.sendResult(it.toMediaBrowserItems())
+                                            }
+                                        }, {
+                                            result.sendResult(emptyList())
+                                        })
+                                    }
+
                                 }
                                 else -> result.sendResult(cached.toMediaBrowserItems())
                             }
@@ -485,15 +492,15 @@ open class MusicService : MediaBrowserServiceCompat() {
             playWhenReady: Boolean,
             extras: Bundle?
         ) {
+            println("arifur -> onPrepareFromMediaId: $mediaId, playWhenReady: $playWhenReady")
             mediaSource.whenReady {
-                val itemToPlay: MediaMetadataCompat? = mediaSource.find { item ->
-                    item.id == mediaId
-                }
+                val itemToPlay: MediaMetadataCompat? = mediaSource.findMedia(mediaId)
                 if (itemToPlay == null) {
+                    println("arifur -> Item not found")
                     Log.w(TAG, "Content not found: MediaID=$mediaId")
                     // TODO: Notify caller of the error.
                 } else {
-
+                    println("arifur -> Item found: ${itemToPlay.id}, ${itemToPlay.mediaUri}, ${itemToPlay.title}, ${itemToPlay.album}")
                     val playbackStartPositionMs =
                         extras?.getLong(MEDIA_DESCRIPTION_EXTRAS_START_PLAYBACK_POSITION_MS, C.TIME_UNSET)
                             ?: C.TIME_UNSET
@@ -548,7 +555,7 @@ open class MusicService : MediaBrowserServiceCompat() {
          * @return a [List] of [MediaMetadataCompat] objects representing a playlist.
          */
         private fun buildPlaylist(item: MediaMetadataCompat): List<MediaMetadataCompat> =
-            mediaSource.filter { it.album == item.album }.sortedBy { it.trackNumber }
+            mediaSource.findAlbums(item).sortedBy { it.trackNumber }
     }
 
     /**

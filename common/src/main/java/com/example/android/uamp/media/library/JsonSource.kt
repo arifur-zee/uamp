@@ -72,6 +72,8 @@ internal class JsonSource(private val source: Uri) : AbstractMusicSource() {
 
     private val _albums = MutableSharedFlow<List<Album>>()
 
+    private val songMap = mutableMapOf<String, MediaMetadataCompat>()
+
     init {
         state = STATE_INITIALIZING
         scope.launch {
@@ -167,10 +169,28 @@ internal class JsonSource(private val source: Uri) : AbstractMusicSource() {
                     // Add description keys to be used by the ExoPlayer MediaSession extension when
                     // announcing metadata changes.
                     mediaMetadataCompats.forEach { it.description.extras?.putAll(it.bundle) }
+                    mediaMetadataCompats.forEach {
+                        songMap[it.id.orEmpty()] = it
+                    }
+
                     onSuccess(mediaMetadataCompats)
                 }
             }
         }
+    }
+
+    override fun findMedia(id: String): MediaMetadataCompat?  = songMap[id]
+
+    override fun findAlbums(item: MediaMetadataCompat): List<MediaMetadataCompat> {
+        val song = findMedia(item.id.orEmpty())
+        val list = song?.let {
+            song ->
+            songMap.values.filter {
+                it.album == song.album
+            }
+        }
+
+        return list.orEmpty()
     }
 
 
