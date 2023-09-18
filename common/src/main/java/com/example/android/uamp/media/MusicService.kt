@@ -673,7 +673,7 @@ open class MusicService : MediaBrowserServiceCompat() {
                 when (repeatMode) {
                     Player.REPEAT_MODE_OFF -> R.drawable.repeat_none
                     Player.REPEAT_MODE_ONE -> R.drawable.repeat_single
-                    else -> R.drawable.repeat_none
+                    else -> R.drawable.repeat_all
                 },
             ).build()
         }
