@@ -85,6 +85,7 @@ internal class JsonSource(private val source: Uri) : AbstractMusicSource() {
         state = STATE_INITIALIZING
         scope.launch {
             _albums.collect{
+                //Split albums in two groups. 1st will go to the recommended and other would be a part of albums.
                 Log.d(TAG, "Albums: $it")
                 val recommended = it.take(it.size/2)
                 val albums = it.drop(it.size/2)
@@ -105,6 +106,9 @@ internal class JsonSource(private val source: Uri) : AbstractMusicSource() {
         }
     }
 
+    /**
+     * Create albums from the given catalog.
+     */
     private fun loadAlbums() {
         scope.launch {
             val catalog = getJsonCatalog(source)
