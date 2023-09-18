@@ -43,15 +43,13 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableSharedFlow
-import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.collect
-import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.BufferedReader
 import java.io.IOException
 import java.io.InputStreamReader
-import java.net.IDN
 import java.net.URL
 import java.util.concurrent.TimeUnit
 
@@ -73,7 +71,9 @@ internal class JsonSource(private val source: Uri) : AbstractMusicSource() {
 
     private val _albums = MutableSharedFlow<List<Album>>()
 
-    private val songMap = mutableMapOf<String, MediaMetadataCompat>()
+    private val _songToPlay = MutableSharedFlow<SongToPlay>()
+    override val songToPlay: SharedFlow<SongToPlay>
+        get() = _songToPlay
 
     init {
         state = STATE_INITIALIZING
@@ -161,32 +161,46 @@ internal class JsonSource(private val source: Uri) : AbstractMusicSource() {
                     // Add description keys to be used by the ExoPlayer MediaSession extension when
                     // announcing metadata changes.
                     mediaMetadataCompats.forEach { it.description.extras?.putAll(it.bundle) }
-                    mediaMetadataCompats.forEach {
-                        songMap[it.id.orEmpty()] = it
-                    }
-
                     onSuccess(mediaMetadataCompats)
                 }
             }
         }
     }
 
-    override fun findMedia(id: String): MediaMetadataCompat? {
-        Log.d(TAG, "findMedia:: id: $id")
-        return songMap[id]
-    }
-
-    override fun findAlbums(item: MediaMetadataCompat): List<MediaMetadataCompat> {
-        Log.d(TAG, "findAlbums:: id: ${item.id}")
-        val song = findMedia(item.id.orEmpty())
-        val list = song?.let {
-            song ->
-            songMap.values.filter {
-                it.album == song.album
+    override fun find(playbackStartPositionMs: Long, playWhenReady: Boolean, id: String) {
+        scope.launch {
+            val music = getJsonCatalog(source)?.music.orEmpty()
+            when(music.isEmpty()){
+                true ->  _songToPlay.emit(
+                    SongToPlay(
+                        playbackStartPositionMs,
+                        playWhenReady,
+                        null,
+                        emptyList()
+                    )
+                )
+                else -> {
+                    val currentSong = music.firstOrNull { it.id == id }
+                    val album = currentSong?.album
+                    val albumSongs = music.filter { it.id != id && it.album == album }
+                    Log.d(TAG, "find:: current Song: $currentSong, albums: $albumSongs")
+                    val currentSongMetaData = currentSong?.toPlayableMediaCompat()
+                    val albumMetaData = albumSongs.map {
+                        it.toPlayableMediaCompat()
+                    }.filterNotNull()
+                    _songToPlay.emit(
+                        SongToPlay(
+                            playbackStartPositionMs,
+                            playWhenReady,
+                            currentSongMetaData,
+                            albumMetaData
+                        )
+                    )
+                }
             }
-        }
 
-        return list.orEmpty()
+
+        }
     }
 
 
@@ -211,6 +225,20 @@ internal class JsonSource(private val source: Uri) : AbstractMusicSource() {
         val reader = BufferedReader(InputStreamReader(catalogConn.openStream()))
         return Gson().fromJson(reader, JsonCatalog::class.java)
     }
+}
+
+private fun JsonMusic?.toPlayableMediaCompat(): MediaMetadataCompat? = this?.let{
+    MediaMetadataCompat.Builder()
+        .from(it)
+        .apply {
+            val jsonImageUri = Uri.parse(it.image)
+            val imageUri = AlbumArtContentProvider.mapUri(jsonImageUri)
+            displayIconUri = imageUri.toString() // Used by ExoPlayer and Notification
+            albumArtUri = imageUri.toString()
+            // Keep the original artwork URI for being included in Cast metadata object.
+            putString(JsonSource.ORIGINAL_ARTWORK_URI_KEY, jsonImageUri.toString())
+        }
+        .build()
 }
 
 private fun List<Album>.toMediaMetadataCompats(root: String, catalogUri: Uri): List<MediaMetadataCompat>{
@@ -344,5 +372,8 @@ data class Album(
     val genre: String,
     val totalTrack: Long,
 )
+
+
+data class SongToPlay(val playBackMs: Long, val playWhenReady: Boolean, val song: MediaMetadataCompat?, val playList: List<MediaMetadataCompat>)
 
 private val TAG: String = JsonSource::class.java.simpleName

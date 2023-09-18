@@ -29,6 +29,7 @@ import com.example.android.uamp.media.extensions.artist
 import com.example.android.uamp.media.extensions.containsCaseInsensitive
 import com.example.android.uamp.media.extensions.genre
 import com.example.android.uamp.media.extensions.title
+import kotlinx.coroutines.flow.SharedFlow
 
 /**
  * Interface used by [MusicService] for looking up [MediaMetadataCompat] objects.
@@ -37,6 +38,8 @@ import com.example.android.uamp.media.extensions.title
  * this is a convenient interface to have on sources.
  */
 interface MusicSource : Iterable<MediaMetadataCompat> {
+
+    val songToPlay: SharedFlow<SongToPlay>
 
     /**
      * Begins loading the data for this music source.
@@ -56,8 +59,7 @@ interface MusicSource : Iterable<MediaMetadataCompat> {
 
     fun load(parentID: String, onSuccess: (List<MediaMetadataCompat>) -> Unit, onFailure: (ex: Exception) -> Unit)
 
-    fun findMedia(id: String): MediaMetadataCompat?
-    fun findAlbums(item: MediaMetadataCompat): List<MediaMetadataCompat>
+    fun find(playbackStartPositionMs: Long, playWhenReady: Boolean, id: String)
 }
 
 @IntDef(

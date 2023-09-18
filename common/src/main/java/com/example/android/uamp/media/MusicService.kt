@@ -33,14 +33,9 @@ import android.widget.Toast
 import androidx.core.content.ContextCompat
 import androidx.media.MediaBrowserServiceCompat
 import androidx.media.utils.MediaConstants
-import com.example.android.uamp.media.extensions.album
 import com.example.android.uamp.media.extensions.flag
-import com.example.android.uamp.media.extensions.id
-import com.example.android.uamp.media.extensions.mediaUri
 import com.example.android.uamp.media.extensions.runAndLogFailure
-import com.example.android.uamp.media.extensions.title
 import com.example.android.uamp.media.extensions.toMediaItem
-import com.example.android.uamp.media.extensions.trackNumber
 import com.example.android.uamp.media.library.AbstractMusicSource
 import com.example.android.uamp.media.library.BrowseTree
 import com.example.android.uamp.media.library.JsonSource
@@ -69,6 +64,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
 
 /**
@@ -214,11 +210,24 @@ open class MusicService : MediaBrowserServiceCompat() {
             previousPlayer = null,
             newPlayer = if (castPlayer?.isCastSessionAvailable == true) castPlayer!! else exoPlayer
         )
+        mediaSessionConnector.setCustomActionProviders(RepeatCustomAction())
         notificationManager.showNotificationForPlayer(currentPlayer)
 
         packageValidator = PackageValidator(this, R.xml.allowed_media_browser_callers)
 
         storage = PersistentStorage.getInstance(applicationContext)
+
+        serviceScope.launch {
+            mediaSource.songToPlay.collect{
+                Log.d(TAG, "songToPlay observer: $it")
+                preparePlaylist(
+                    metadataList = it.playList,
+                    itemToPlay = it.song,
+                    playWhenReady = it.playWhenReady,
+                    playbackStartPositionMs = it.playBackMs
+                )
+            }
+        }
     }
 
     /**
@@ -487,8 +496,11 @@ open class MusicService : MediaBrowserServiceCompat() {
             extras: Bundle?
         ) {
             mediaSource.whenReady {
-                val itemToPlay: MediaMetadataCompat? = mediaSource.findMedia(mediaId)
-                if (itemToPlay == null) {
+                val playbackStartPositionMs =
+                    extras?.getLong(MEDIA_DESCRIPTION_EXTRAS_START_PLAYBACK_POSITION_MS, C.TIME_UNSET)
+                        ?: C.TIME_UNSET
+               mediaSource.find(playbackStartPositionMs, playWhenReady, mediaId)
+                /*if (itemToPlay == null) {
                     Log.w(TAG, "Content not found: MediaID=$mediaId")
                     // TODO: Notify caller of the error.
                 } else {
@@ -502,7 +514,7 @@ open class MusicService : MediaBrowserServiceCompat() {
                         playWhenReady,
                         playbackStartPositionMs
                     )
-                }
+                }*/
             }
         }
 
@@ -537,16 +549,7 @@ open class MusicService : MediaBrowserServiceCompat() {
             cb: ResultReceiver?
         ) = false
 
-        /**
-         * Builds a playlist based on a [MediaMetadataCompat].
-         *
-         * TODO: Support building a playlist by artist, genre, etc...
-         *
-         * @param item Item to base the playlist on.
-         * @return a [List] of [MediaMetadataCompat] objects representing a playlist.
-         */
-        private fun buildPlaylist(item: MediaMetadataCompat): List<MediaMetadataCompat> =
-            mediaSource.findAlbums(item).sortedBy { it.trackNumber }
+
     }
 
     /**
@@ -643,7 +646,57 @@ open class MusicService : MediaBrowserServiceCompat() {
         it.toMediaBrowserItem()
     }
 
-    private fun  MediaMetadataCompat.toMediaBrowserItem() = MediaItem(description, flag) }
+    private fun  MediaMetadataCompat.toMediaBrowserItem() = MediaItem(description, flag)
+
+    inner class RepeatCustomAction: MediaSessionConnector.CustomActionProvider {
+        private val ACTION_REPEAT = "action_repeat"
+        private val REPEAT = "repeat"
+        private var repeatMode = Player.REPEAT_MODE_OFF
+        private val UPDATE_REPEAT_MODE = "update_repeat_mode"
+
+        override fun onCustomAction(player: Player, action: String, extras: Bundle?) {
+            Log.d(TAG, "onCustomAction, action: $action")
+            when (action) {
+                ACTION_REPEAT -> when (repeatMode) {
+                    Player.REPEAT_MODE_OFF -> {
+                        updateRepeatMode(Player.REPEAT_MODE_ONE)
+                    }
+
+                    Player.REPEAT_MODE_ONE -> {
+                        updateRepeatMode(Player.REPEAT_MODE_ALL)
+                    }
+
+                    else -> {
+                        updateRepeatMode(Player.REPEAT_MODE_OFF)
+                    }
+                }
+
+                else -> Unit
+            }
+        }
+
+        override fun getCustomAction(player: Player): PlaybackStateCompat.CustomAction?{
+            Log.d(TAG, "getCustomAction")
+            return PlaybackStateCompat.CustomAction.Builder(
+                ACTION_REPEAT,
+                REPEAT,
+                when (repeatMode) {
+                    Player.REPEAT_MODE_OFF -> R.drawable.repeat_none
+                    Player.REPEAT_MODE_ONE -> R.drawable.repeat_single
+                    else -> R.drawable.repeat_none
+                },
+            ).build()
+        }
+
+        private fun updateRepeatMode(repeatMode: Int) {
+            this.repeatMode = repeatMode
+            val bundle = Bundle()
+            bundle.putInt(UPDATE_REPEAT_MODE, repeatMode)
+            mediaSessionConnector.mediaSession.sendSessionEvent(ACTION_REPEAT, bundle)
+        }
+    }
+
+}
 
 /*
  * (Media) Session events
