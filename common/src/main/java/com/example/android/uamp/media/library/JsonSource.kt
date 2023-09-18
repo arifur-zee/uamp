@@ -88,8 +88,8 @@ internal class JsonSource(private val source: Uri) : AbstractMusicSource() {
                 Log.d(TAG, "Albums: $it")
                 val recommended = it.take(it.size/2)
                 val albums = it.drop(it.size/2)
-                val recommendedMediaItems = recommended.toMediaMetadataCompats(UAMP_ALBUMS_ROOT, source)
-                val albumMediaItems = albums.toMediaMetadataCompats(UAMP_RECOMMENDED_ROOT, source)
+                val recommendedMediaItems = recommended.toMediaMetadataCompats(UAMP_ALBUMS_ROOT)
+                val albumMediaItems = albums.toMediaMetadataCompats(UAMP_RECOMMENDED_ROOT)
                 val updatedList = buildList {
                     addAll(recommendedMediaItems)
                     addAll(albumMediaItems)
@@ -275,10 +275,10 @@ internal class JsonSource(private val source: Uri) : AbstractMusicSource() {
         }?.filterNotNull().orEmpty()
 
         // First attempt to search with the "focus" that's provided in the extras.
-        val focusSearchResult = when (extras[MediaStore.EXTRA_MEDIA_FOCUS]) {
+        val focusSearchResult = when (extras.getString(MediaStore.EXTRA_MEDIA_FOCUS)) {
             MediaStore.Audio.Genres.ENTRY_CONTENT_TYPE -> {
                 // For a Genre focused search, only genre is set.
-                val genre = extras[EXTRA_MEDIA_GENRE]
+                val genre = extras.getString(EXTRA_MEDIA_GENRE)
                 Log.d(TAG, "Focused genre search: '$genre'")
                 songs.filter { song ->
                     song.genre == genre
@@ -287,7 +287,7 @@ internal class JsonSource(private val source: Uri) : AbstractMusicSource() {
 
             MediaStore.Audio.Artists.ENTRY_CONTENT_TYPE -> {
                 // For an Artist focused search, only the artist is set.
-                val artist = extras[MediaStore.EXTRA_MEDIA_ARTIST]
+                val artist = extras.getString(MediaStore.EXTRA_MEDIA_ARTIST)
                 Log.d(TAG, "Focused artist search: '$artist'")
                 songs.filter { song ->
                     (song.artist == artist || song.albumArtist == artist)
@@ -296,8 +296,8 @@ internal class JsonSource(private val source: Uri) : AbstractMusicSource() {
 
             MediaStore.Audio.Albums.ENTRY_CONTENT_TYPE -> {
                 // For an Album focused search, album and artist are set.
-                val artist = extras[MediaStore.EXTRA_MEDIA_ARTIST]
-                val album = extras[MediaStore.EXTRA_MEDIA_ALBUM]
+                val artist = extras.getString(MediaStore.EXTRA_MEDIA_ARTIST)
+                val album = extras.getString(MediaStore.EXTRA_MEDIA_ALBUM)
                 Log.d(TAG, "Focused album search: album='$album' artist='$artist")
                 songs.filter { song ->
                     (song.artist == artist || song.albumArtist == artist) && song.album == album
@@ -306,9 +306,9 @@ internal class JsonSource(private val source: Uri) : AbstractMusicSource() {
 
             MediaStore.Audio.Media.ENTRY_CONTENT_TYPE -> {
                 // For a Song (aka Media) focused search, title, album, and artist are set.
-                val title = extras[MediaStore.EXTRA_MEDIA_TITLE]
-                val album = extras[MediaStore.EXTRA_MEDIA_ALBUM]
-                val artist = extras[MediaStore.EXTRA_MEDIA_ARTIST]
+                val title = extras.getString(MediaStore.EXTRA_MEDIA_TITLE)
+                val album = extras.getString(MediaStore.EXTRA_MEDIA_ALBUM)
+                val artist = extras.getString(MediaStore.EXTRA_MEDIA_ARTIST)
                 Log.d(TAG, "Focused media search: title='$title' album='$album' artist='$artist")
                 songs.filter { song ->
                     (song.artist == artist || song.albumArtist == artist) && song.album == album
@@ -369,8 +369,7 @@ private fun JsonMusic?.toPlayableMediaCompat(): MediaMetadataCompat? = this?.let
 
 
 
-private fun List<Album>.toMediaMetadataCompats(root: String, catalogUri: Uri): List<MediaMetadataCompat>{
-    val baseUri = catalogUri.toString().removeSuffix(catalogUri.lastPathSegment ?: "")
+private fun List<Album>.toMediaMetadataCompats(root: String): List<MediaMetadataCompat>{
     val mediaMetadataCompats = map {
         val jsonImageUri = Uri.parse(it.icon)
         val imageUri = AlbumArtContentProvider.mapUri(jsonImageUri)
