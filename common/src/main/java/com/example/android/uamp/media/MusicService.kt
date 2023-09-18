@@ -524,6 +524,7 @@ open class MusicService : MediaBrowserServiceCompat() {
          * For details on how search is handled, see [AbstractMusicSource.search].
          */
         override fun onPrepareFromSearch(query: String, playWhenReady: Boolean, extras: Bundle?) {
+            Log.d(TAG, "onPrepareFromSearch, query: $query")
             mediaSource.whenReady {
                 mediaSource.search(query, playWhenReady, extras ?: Bundle.EMPTY)
             }
