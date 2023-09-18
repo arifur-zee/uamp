@@ -356,19 +356,31 @@ open class MusicService : MediaBrowserServiceCompat() {
         extras: Bundle?,
         result: Result<List<MediaItem>>
     ) {
+        Log.d(TAG, "onSearch:: query: $query" )
 
         val resultsSent = mediaSource.whenReady { successfullyInitialized ->
             if (successfullyInitialized) {
-                val resultsList = mediaSource.search(query, extras ?: Bundle.EMPTY)
-                    .map { mediaMetadata ->
-                        MediaItem(mediaMetadata.description, mediaMetadata.flag)
+                runAndLogFailure(TAG){
+                    result.detach()
+                }
+                mediaSource.search(query, true, extras ?: Bundle.EMPTY){
+                    songs ->
+                    Log.d(TAG, "onSearch result:: query: $query, songs: $songs" )
+                    val mediaItems = songs.map{
+                        MediaItem(it.description, it.flag)
                     }
-                result.sendResult(resultsList)
+                    runAndLogFailure(TAG){
+                        result.sendResult(mediaItems)
+                    }
+
+                }
             }
         }
 
         if (!resultsSent) {
-            result.detach()
+            runAndLogFailure(TAG){
+                result.detach()
+            }
         }
     }
 
@@ -500,21 +512,6 @@ open class MusicService : MediaBrowserServiceCompat() {
                     extras?.getLong(MEDIA_DESCRIPTION_EXTRAS_START_PLAYBACK_POSITION_MS, C.TIME_UNSET)
                         ?: C.TIME_UNSET
                mediaSource.find(playbackStartPositionMs, playWhenReady, mediaId)
-                /*if (itemToPlay == null) {
-                    Log.w(TAG, "Content not found: MediaID=$mediaId")
-                    // TODO: Notify caller of the error.
-                } else {
-                    val playbackStartPositionMs =
-                        extras?.getLong(MEDIA_DESCRIPTION_EXTRAS_START_PLAYBACK_POSITION_MS, C.TIME_UNSET)
-                            ?: C.TIME_UNSET
-
-                    preparePlaylist(
-                        buildPlaylist(itemToPlay),
-                        itemToPlay,
-                        playWhenReady,
-                        playbackStartPositionMs
-                    )
-                }*/
             }
         }
 
@@ -528,15 +525,7 @@ open class MusicService : MediaBrowserServiceCompat() {
          */
         override fun onPrepareFromSearch(query: String, playWhenReady: Boolean, extras: Bundle?) {
             mediaSource.whenReady {
-                val metadataList = mediaSource.search(query, extras ?: Bundle.EMPTY)
-                if (metadataList.isNotEmpty()) {
-                    preparePlaylist(
-                        metadataList,
-                        metadataList[0],
-                        playWhenReady,
-                        playbackStartPositionMs = C.TIME_UNSET
-                    )
-                }
+                mediaSource.search(query, playWhenReady, extras ?: Bundle.EMPTY)
             }
         }
 

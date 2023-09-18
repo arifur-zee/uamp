@@ -17,13 +17,19 @@
 package com.example.android.uamp.media.library
 
 import android.net.Uri
+import android.os.Bundle
+import android.provider.MediaStore
+import android.provider.MediaStore.EXTRA_MEDIA_GENRE
 import android.support.v4.media.MediaBrowserCompat.MediaItem
 import android.support.v4.media.MediaDescriptionCompat.STATUS_NOT_DOWNLOADED
 import android.support.v4.media.MediaMetadataCompat
 import android.util.Log
+import com.example.android.uamp.media.MEDIA_DESCRIPTION_EXTRAS_START_PLAYBACK_POSITION_MS
 import com.example.android.uamp.media.extensions.album
 import com.example.android.uamp.media.extensions.albumArtUri
+import com.example.android.uamp.media.extensions.albumArtist
 import com.example.android.uamp.media.extensions.artist
+import com.example.android.uamp.media.extensions.containsCaseInsensitive
 import com.example.android.uamp.media.extensions.displayDescription
 import com.example.android.uamp.media.extensions.displayIconUri
 import com.example.android.uamp.media.extensions.displaySubtitle
@@ -103,9 +109,9 @@ internal class JsonSource(private val source: Uri) : AbstractMusicSource() {
         scope.launch {
             val catalog = getJsonCatalog(source)
             val albums = catalog?.let {
-                catalog ->
+                    catalog ->
                 catalog.music.groupBy {
-                   it.album
+                    it.album
                 }
             }?.map {
                 val firstItem = it.value.first()
@@ -125,7 +131,7 @@ internal class JsonSource(private val source: Uri) : AbstractMusicSource() {
 
     override suspend fun load() {
         Log.d(TAG, "Load")
-       loadAlbums()
+        loadAlbums()
     }
 
     override fun load(parentId: String, onSuccess: (List<MediaMetadataCompat>) -> Unit, onFailure: (Exception) -> Unit) {
@@ -137,7 +143,7 @@ internal class JsonSource(private val source: Uri) : AbstractMusicSource() {
                     val baseUri = source.toString().removeSuffix(source.lastPathSegment ?: "")
 
                     val mediaMetadataCompats = catalog.music.filter { parentId == it.album }.map {
-                        song ->
+                            song ->
                         source.scheme?.let { scheme ->
                             if (!song.source.startsWith(scheme)) {
                                 song.source = baseUri + song.source
@@ -185,9 +191,9 @@ internal class JsonSource(private val source: Uri) : AbstractMusicSource() {
                     val albumSongs = music.filter { it.id != id && it.album == album }
                     Log.d(TAG, "find:: current Song: $currentSong, albums: $albumSongs")
                     val currentSongMetaData = currentSong?.toPlayableMediaCompat()
-                    val albumMetaData = albumSongs.map {
+                    val albumMetaData = (listOf(currentSongMetaData) + albumSongs.map {
                         it.toPlayableMediaCompat()
-                    }.filterNotNull()
+                    }).filterNotNull()
                     _songToPlay.emit(
                         SongToPlay(
                             playbackStartPositionMs,
@@ -225,6 +231,126 @@ internal class JsonSource(private val source: Uri) : AbstractMusicSource() {
         val reader = BufferedReader(InputStreamReader(catalogConn.openStream()))
         return Gson().fromJson(reader, JsonCatalog::class.java)
     }
+
+    override fun search(query: String, playWhenReady: Boolean, extras: Bundle) {
+        Log.d(TAG, "search: Query: $query, playWhenReady: $playWhenReady")
+        scope.launch {
+            val playbackStartPositionMs =
+                extras.getLong(MEDIA_DESCRIPTION_EXTRAS_START_PLAYBACK_POSITION_MS, C.TIME_UNSET)
+
+            val result = search(extras, query)
+            _songToPlay.emit(
+                SongToPlay(
+                    playbackStartPositionMs,
+                    playWhenReady,
+                    result.getOrNull(0),
+                    result
+                )
+            )
+        }
+    }
+
+    override fun search(
+        query: String,
+        playWhenReady: Boolean,
+        extras: Bundle,
+        onResult: (List<MediaMetadataCompat>) -> Unit
+    ) {
+        scope.launch {
+            val result = search(extras, query)
+            onResult(
+                result
+            )
+        }
+    }
+
+    private suspend fun search(
+        extras: Bundle,
+        query: String
+    ): List<MediaMetadataCompat> {
+        val songs = getJsonCatalog(source)?.let {
+            it.music.map {
+                it.toPlayableMediaCompat()
+            }
+        }?.filterNotNull().orEmpty()
+
+        // First attempt to search with the "focus" that's provided in the extras.
+        val focusSearchResult = when (extras[MediaStore.EXTRA_MEDIA_FOCUS]) {
+            MediaStore.Audio.Genres.ENTRY_CONTENT_TYPE -> {
+                // For a Genre focused search, only genre is set.
+                val genre = extras[EXTRA_MEDIA_GENRE]
+                Log.d(TAG, "Focused genre search: '$genre'")
+                songs.filter { song ->
+                    song.genre == genre
+                }
+            }
+
+            MediaStore.Audio.Artists.ENTRY_CONTENT_TYPE -> {
+                // For an Artist focused search, only the artist is set.
+                val artist = extras[MediaStore.EXTRA_MEDIA_ARTIST]
+                Log.d(TAG, "Focused artist search: '$artist'")
+                songs.filter { song ->
+                    (song.artist == artist || song.albumArtist == artist)
+                }
+            }
+
+            MediaStore.Audio.Albums.ENTRY_CONTENT_TYPE -> {
+                // For an Album focused search, album and artist are set.
+                val artist = extras[MediaStore.EXTRA_MEDIA_ARTIST]
+                val album = extras[MediaStore.EXTRA_MEDIA_ALBUM]
+                Log.d(TAG, "Focused album search: album='$album' artist='$artist")
+                songs.filter { song ->
+                    (song.artist == artist || song.albumArtist == artist) && song.album == album
+                }
+            }
+
+            MediaStore.Audio.Media.ENTRY_CONTENT_TYPE -> {
+                // For a Song (aka Media) focused search, title, album, and artist are set.
+                val title = extras[MediaStore.EXTRA_MEDIA_TITLE]
+                val album = extras[MediaStore.EXTRA_MEDIA_ALBUM]
+                val artist = extras[MediaStore.EXTRA_MEDIA_ARTIST]
+                Log.d(TAG, "Focused media search: title='$title' album='$album' artist='$artist")
+                songs.filter { song ->
+                    (song.artist == artist || song.albumArtist == artist) && song.album == album
+                            && song.title == title
+                }
+            }
+
+            else -> {
+                // There isn't a focus, so no results yet.
+                emptyList()
+            }
+        }
+
+        // If there weren't any results from the focused search (or if there wasn't a focus
+        // to begin with), try to find any matches given the 'query' provided, searching against
+        // a few of the fields.
+        // In this sample, we're just checking a few fields with the provided query, but in a
+        // more complex app, more logic could be used to find fuzzy matches, etc...
+
+
+        return when (focusSearchResult.isEmpty()) {
+            true -> when (query.isNotBlank()) {
+                true -> {
+                    Log.d(TAG, "Unfocused search for '$query'")
+                    songs.filter { song ->
+                        song.title.containsCaseInsensitive(query)
+                                || song.genre.containsCaseInsensitive(query)
+                    }
+                }
+
+                else -> {
+                    // If the user asked to "play music", or something similar, the query will also
+                    // be blank. Given the small catalog of songs in the sample, just return them
+                    // all, shuffled, as something to play.
+                    Log.d(TAG, "Unfocused search without keyword")
+                    songs.shuffled()
+                }
+            }
+
+            else -> focusSearchResult
+        }
+    }
 }
 
 private fun JsonMusic?.toPlayableMediaCompat(): MediaMetadataCompat? = this?.let{
@@ -240,6 +366,8 @@ private fun JsonMusic?.toPlayableMediaCompat(): MediaMetadataCompat? = this?.let
         }
         .build()
 }
+
+
 
 private fun List<Album>.toMediaMetadataCompats(root: String, catalogUri: Uri): List<MediaMetadataCompat>{
     val baseUri = catalogUri.toString().removeSuffix(catalogUri.lastPathSegment ?: "")

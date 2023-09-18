@@ -97,7 +97,7 @@ class MusicSourceTest {
             putString(MediaStore.EXTRA_MEDIA_FOCUS, MediaStore.Audio.Genres.ENTRY_CONTENT_TYPE)
             putString(MediaStore.EXTRA_MEDIA_GENRE, searchQuery)
         }
-        val result = testSource.search(searchQuery, searchExtras)
+        val result = testSource.search(searchQuery, playWhenReady, searchExtras)
         Assert.assertEquals(result.size, 1)
         Assert.assertEquals(result[0].id, "about_a_guy")
     }
@@ -114,7 +114,7 @@ class MusicSourceTest {
             putString(MediaStore.EXTRA_MEDIA_ALBUM, "Tales from the Render Farm")
             putString(MediaStore.EXTRA_MEDIA_ARTIST, "7 Developers and a Pastry Chef")
         }
-        val result = testSource.search(searchQuery, searchExtras)
+        val result = testSource.search(searchQuery, playWhenReady, searchExtras)
         Assert.assertEquals(result.size, 1)
         Assert.assertEquals(result[0].id, "about_a_guy")
     }
@@ -131,7 +131,7 @@ class MusicSourceTest {
             putString(MediaStore.EXTRA_MEDIA_ALBUM, "Delegated by Lazy")
             putString(MediaStore.EXTRA_MEDIA_ARTIST, "Brainiest Jet")
         }
-        val result = testSource.search(searchQuery, searchExtras)
+        val result = testSource.search(searchQuery, playWhenReady, searchExtras)
         Assert.assertEquals(result.size, 0)
     }
 
@@ -142,7 +142,7 @@ class MusicSourceTest {
 
         val searchQuery = "hasse"
         val searchExtras = Bundle.EMPTY
-        val result = testSource.search(searchQuery, searchExtras)
+        val result = testSource.search(searchQuery, playWhenReady, searchExtras)
         Assert.assertEquals(result.size, 1)
         Assert.assertEquals(result[0].id, "ich_hasse_dich")
     }
